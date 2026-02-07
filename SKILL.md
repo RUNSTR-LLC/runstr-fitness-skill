@@ -1,6 +1,6 @@
 ---
 name: runstr-fitness
-description: Give your AI agent access to your health and fitness data from RUNSTR. Fetches workouts, habits, journal entries, mood, steps, and more from Nostr. Use when the user asks about their workouts, fitness history, health habits, mood tracking, or wants AI fitness coaching based on real data.
+description: Give your AI agent access to your health and fitness data from RUNSTR. Fetches workouts, habits, journal entries, mood, steps, competition leaderboards, and more from Nostr. Use when the user asks about their workouts, fitness history, health habits, mood tracking, competition rankings, who's winning, what place they're in, or wants AI fitness coaching based on real data.
 metadata: {"openclaw":{"emoji":"\ud83c\udfc3","requires":{"bins":["nak"]},"install":[{"id":"go","kind":"go","package":"github.com/fiatjaf/nak@latest","bins":["nak"],"label":"Install nak via Go"}]}}
 ---
 
@@ -14,6 +14,9 @@ Give your AI agent access to your real health and fitness data. RUNSTR is a free
 - Journal entries with mood and energy levels
 - Daily step counts
 - Which charity you support and reward routing
+- Competition leaderboards and rankings (no nsec needed — public data)
+- Daily records (fastest 5K/10K/half marathon/marathon, most steps)
+- Charity impact rankings and donation estimates
 
 ## Setup: Getting Your Data to Your Bot
 
@@ -208,7 +211,117 @@ If found, parse `tags` array:
 
 Merge with backup data. Deduplicate by matching workout start times or IDs.
 
-### Step 5: Analyze and Present
+### Step 5: Fetch Competition Leaderboards (Kind 30150)
+
+RUNSTR publishes a public leaderboard note to Nostr every 5 minutes with all active competition standings, daily records, and charity rankings. **This step does NOT require the user's nsec.** The leaderboard note is public. If a user asks "who's winning Season II?" without giving their nsec, you can still answer.
+
+```bash
+# RUNSTR aggregator pubkey (hardcoded — this is the trusted source)
+RUNSTR_AGG="611021eaaa2692741b1236bbcea54c6aa9f20ba30cace316c3a93d45089a7d0f"
+
+nak req -k 30150 -a $RUNSTR_AGG -t d=runstr-leaderboards -l 1 \
+  wss://relay.damus.io wss://relay.primal.net wss://nos.lol wss://relay.nostr.band
+```
+
+Parse the content field as JSON:
+
+```bash
+nak req -k 30150 -a $RUNSTR_AGG -t d=runstr-leaderboards -l 1 \
+  wss://relay.damus.io wss://nos.lol | jq -r '.content' | jq .
+```
+
+#### Leaderboard Payload Structure
+
+```json
+{
+  "v": 1,
+  "updatedAt": "2026-02-06T12:05:00Z",
+  "competitions": [
+    {
+      "id": "season-ii",
+      "name": "Season II",
+      "activityType": "running",
+      "scoringMethod": "total_distance",
+      "status": "active",
+      "startDate": "2026-01-01",
+      "endDate": "2026-03-01",
+      "prizePoolSats": 500000,
+      "entries": [
+        {"r": 1, "p": "npub1abc...", "n": "Runner1", "s": 142.5, "w": 28}
+      ]
+    }
+  ],
+  "daily": {
+    "date": "2026-02-06",
+    "fastest5k": [{"r": 1, "p": "npub1...", "n": "SpeedKing", "s": 1320}],
+    "fastest10k": [],
+    "fastestHalf": [],
+    "fastestMarathon": [],
+    "mostSteps": [{"r": 1, "p": "npub1...", "n": "StepQueen", "s": 18432}]
+  },
+  "charityRankings": [
+    {"id": "als-foundation", "name": "ALS Foundation", "km": 342.5, "sats": 342500, "participants": 12}
+  ]
+}
+```
+
+#### Entry Field Keys
+
+| Key | Meaning |
+|-----|---------|
+| `r` | Rank (1-based) |
+| `p` | npub (Nostr public key) |
+| `n` | Display name |
+| `s` | Score (meaning depends on competition — see below) |
+| `w` | Workout count |
+
+#### Score Interpretation
+
+| `scoringMethod` | `s` means | Format as |
+|-----------------|-----------|-----------|
+| `total_distance` | Kilometers | `142.5 km` |
+| `total_duration` | Seconds | `10:00:00` (HH:MM:SS) |
+| `workout_count` | Count | `28 workouts` |
+| `fastest_time` | Seconds (lower = better) | `22:00` (MM:SS) |
+
+Daily boards:
+- `fastest5k`, `fastest10k`, `fastestHalf`, `fastestMarathon` — seconds, lower is better, format as MM:SS or H:MM:SS
+- `mostSteps` — step count, higher is better, format with commas
+
+#### Finding the User's Position
+
+If you have the user's npub (from Step 1 decoding, or they told you directly):
+
+1. Search each competition's `entries` array for a matching `p` field
+2. Report their rank, score, and gap to the leader
+3. If they're not in a competition, tell them they haven't joined it
+
+Example response for "what's my rank?":
+
+> You're #7 in Season II with 85.3 km across 15 workouts. The leader (Runner1) has 142.5 km — you're 57.2 km behind.
+>
+> You're not entered in the January Walking Contest.
+>
+> In today's daily boards, you posted a 23:45 5K (ranked #3 today).
+
+#### Finding the User Without nsec
+
+Users may ask leaderboard questions without providing their nsec. In this case:
+- Ask for their **npub** (public key) — this is safe to share and sufficient to look them up
+- Or ask for their Nostr display name and search the `n` fields (warn about possible duplicates)
+- You do NOT need nsec to look someone up on the leaderboard
+
+#### Freshness Check
+
+The note's `updatedAt` field tells you when data was last refreshed. If it's more than 15 minutes old, warn the user: "Leaderboard data is from [time]. It may be slightly behind — RUNSTR updates every 5 minutes."
+
+If the note is missing entirely, the aggregator may be down: "I couldn't find current leaderboard data on Nostr. The RUNSTR leaderboard service may be temporarily offline. Check https://runstr.app/leaderboards for live standings."
+
+#### Charity Rankings
+
+When users ask about charity impact or team performance, use the `charityRankings` array. The `sats` field is the estimated donation amount (for the Einundzwanzig challenge, 1 km = 1,000 sats donated to that charity).
+
+### Step 6: Analyze and Present
 
 **Workout Summary:** Total workouts, breakdown by activity, distance/duration/calories, frequency, personal bests.
 
@@ -222,7 +335,7 @@ Merge with backup data. Deduplicate by matching workout start times or IDs.
 
 **Charity:** Which team/charity, reward routing (user vs charity).
 
-### Step 6: Store Health Summary in Memory
+### Step 7: Store Health Summary in Memory
 
 Save a structured summary for future conversations so you don't re-query every time:
 
@@ -264,6 +377,10 @@ Once you have data, you can:
 - Correlate mood with activity
 - Track goals ("run 20 km this week")
 - Remind based on usual workout schedule
+- Answer "who's winning?" and "what's my rank?" for any active competition
+- Compare user's performance against the leader or specific competitors
+- Track daily record attempts ("can I beat the 5K record today?")
+- Report charity impact for team-based competitions
 
 ### Troubleshooting
 
@@ -276,6 +393,9 @@ Once you have data, you can:
 | No Go installed | Use Method 2 (Node.js with NDK) |
 | Empty workouts array | User hasn't tracked workouts yet |
 | No habits/journal | User hasn't used those features in the app |
+| No leaderboard note found | RUNSTR aggregator may be offline — direct user to https://runstr.app/leaderboards |
+| Leaderboard data is stale | Aggregator may have paused — check `updatedAt` field and warn user |
+| User not on leaderboard | They haven't joined that competition in the RUNSTR app |
 
 ### About RUNSTR
 
