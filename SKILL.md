@@ -1,6 +1,6 @@
 ---
 name: runstr-fitness
-description: Give your AI agent access to your health and fitness data from RUNSTR. Fetches workouts, habits, journal entries, mood, steps, competition leaderboards, and more from Nostr. Use when the user asks about their workouts, fitness history, health habits, mood tracking, competition rankings, who's winning, what place they're in, or wants AI fitness coaching based on real data.
+description: Give your AI agent access to your health and fitness data from RUNSTR. Fetches workouts, habits, journal entries, mood, steps, competition leaderboards, and PPQ.AI credentials from Nostr. Use when the user asks about their workouts, fitness history, health habits, mood tracking, competition rankings, who's winning, what place they're in, wants AI fitness coaching, or wants to use their workout-earned AI credits.
 metadata: {"openclaw":{"emoji":"\ud83c\udfc3","requires":{"bins":["nak"]},"install":[{"id":"go","kind":"go","package":"github.com/fiatjaf/nak@latest","bins":["nak"],"label":"Install nak via Go"}]}}
 ---
 
@@ -17,6 +17,7 @@ Give your AI agent access to your real health and fitness data. RUNSTR is a free
 - Competition leaderboards and rankings (no nsec needed — public data)
 - Daily records (fastest 5K/10K/half marathon/marathon, most steps)
 - Charity impact rankings and donation estimates
+- **PPQ.AI credentials** (if configured) — lets your agent use LLM models funded by your workouts
 
 ## Setup: Getting Your Data to Your Bot
 
@@ -174,7 +175,9 @@ try {
   ],
   "preferences": {
     "unitSystem": "imperial",
-    "selectedCharity": "hrf"
+    "selectedCharity": "hrf",
+    "ppqApiKey": "ppq_abc123...",
+    "ppqCreditId": "credit_xyz789..."
   }
 }
 ```
@@ -397,11 +400,90 @@ Once you have data, you can:
 | Leaderboard data is stale | Aggregator may have paused — check `updatedAt` field and warn user |
 | User not on leaderboard | They haven't joined that competition in the RUNSTR app |
 
+---
+
+## PPQ.AI Integration: Earn AI Credits by Working Out
+
+RUNSTR users can choose to earn **PPQ.AI credits** instead of Bitcoin as their workout reward. This gives them access to PPQ.AI's multi-model LLM API — meaning their workouts fund their AI assistant's capabilities.
+
+### Extracting PPQ.AI Credentials
+
+If the user has PPQ.AI configured as their reward destination, their backup will include:
+
+```json
+{
+  "preferences": {
+    "ppqApiKey": "ppq_abc123...",
+    "ppqCreditId": "credit_xyz789..."
+  }
+}
+```
+
+- `ppqApiKey` — API key for making LLM requests
+- `ppqCreditId` — Account ID for checking balance
+
+**If these fields are missing or null:** The user either hasn't set up PPQ.AI in RUNSTR, or hasn't backed up since setting it up. Tell them: "I don't see your PPQ.AI key in your backup. If you've set up PPQ.AI rewards in RUNSTR, try creating a fresh backup (Settings > Backup)."
+
+### What the Agent Can Do via API
+
+The PPQ.AI API supports **chat completions** with the user's earned credits:
+
+```bash
+curl -X POST https://api.ppq.ai/v1/chat/completions \
+  -H "Authorization: Bearer $PPQ_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-20250514",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+**Check balance:**
+```bash
+curl -X POST https://api.ppq.ai/credits/balance \
+  -H "Content-Type: application/json" \
+  -d '{"credit_id": "'$PPQ_CREDIT_ID'"}'
+```
+
+### What Requires the Browser
+
+The API is primarily for chat completions. For full access to all features, the user should log into PPQ.AI directly:
+
+**Guide the user:**
+1. Go to https://ppq.ai
+2. Log in with their credentials (or create account if needed)
+3. In the browser, they can:
+   - Access the full model selection (more models than API)
+   - Adjust settings and preferences
+   - View detailed usage history
+   - Top up credits manually
+
+**When to suggest browser:**
+- User wants a specific model not available via API
+- User wants to see full usage breakdown
+- User wants to change PPQ.AI settings
+- User wants to explore advanced features
+
+### The Value Proposition
+
+This is the "work out to earn AI credits" loop:
+
+1. User works out (tracked by RUNSTR)
+2. RUNSTR rewards them with PPQ.AI credits (instead of sats)
+3. Agent extracts PPQ.AI key from backup
+4. Agent uses those credits for LLM requests on user's behalf
+5. User's fitness literally powers their AI assistant
+
+**Coaching angle:** "You've earned 500 PPQ.AI credits this month from your workouts. That's about 50 AI queries — keep moving and your AI never runs out of juice!"
+
+---
+
 ### About RUNSTR
 
 RUNSTR is a free, open-source fitness app for the Bitcoin/Nostr community. Track workouts, earn Bitcoin (sats) for exercising, support charities, and join fitness competitions. Your data is yours — stored on your device and backed up encrypted to Nostr.
 
 - Website: https://runstr.app
-- GitHub: https://github.com/RUNSTR
+- GitHub: https://github.com/RUNSTR-LLC/RUNSTR
 - Rewards: 50 sats per daily workout via Lightning address
 - PPQ.AI credits: Earn AI credits for working out
+- PPQ.AI: https://ppq.ai
