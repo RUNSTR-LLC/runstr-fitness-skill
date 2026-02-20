@@ -2,7 +2,13 @@
 
 **Give your AI agent access to your health and fitness data — and earn AI credits just by working out.**
 
-This skill connects your AI agent to your [RUNSTR](https://runstr.app) fitness data via Nostr's encrypted backup system. Your agent gets full context on your workouts, habits, mood, and competition standings — enabling personalized coaching, accountability, and health insights.
+This skill connects your AI agent to your [RUNSTR](https://runstr.app) fitness data. Your agent gets full context on your workouts, competition standings, and rewards — enabling personalized coaching and health insights.
+
+## Security First
+
+**Most features only need your npub (public key)** — safe to share, like a username.
+
+Your nsec (private key) is **only needed for PPQ.AI credits** — and that's optional. We designed this skill to minimize sensitive data exposure.
 
 ## What This Skill Does
 
@@ -45,20 +51,21 @@ Your PPQ.AI key is stored in your encrypted RUNSTR backup on Nostr. This skill r
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   RUNSTR    │────▶│    Nostr    │────▶│  Your Agent │
-│  (Mobile)   │     │   Relays    │     │  (OpenClaw) │
+│   RUNSTR    │────▶│  Supabase   │────▶│  Your Agent │
+│  (Mobile)   │     │  (real-time)│     │  (OpenClaw) │
 └─────────────┘     └─────────────┘     └─────────────┘
-       │                   │                   │
-       │  Encrypted        │  Fetch &          │  Coaching,
-       │  Backup           │  Decrypt          │  Insights,
-       │  (NIP-44)         │                   │  PPQ.AI Access
-       ▼                   ▼                   ▼
+       │                                       │
+       │  Auto-sync                           │  Coaching,
+       │  workouts                            │  Insights,
+       ▼                                      ▼  Rankings
 ```
 
 1. **You track workouts** in RUNSTR (automatic from Apple Health/Health Connect)
-2. **You backup to Nostr** (encrypted with your private key)
-3. **Your agent fetches the backup** and decrypts it with your nsec
+2. **Workouts sync automatically** to Supabase (real-time, no manual backup needed)
+3. **Your agent queries with your npub** (public key only — no secrets)
 4. **Your agent now has context** for personalized coaching
+
+**For PPQ.AI credits:** Optionally backup to Nostr and share your nsec to let your agent access your workout-earned AI credits.
 
 ## Quick Start
 
